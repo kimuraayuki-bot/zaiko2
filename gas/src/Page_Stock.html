@@ -41,6 +41,12 @@
 
   <div id="stock-panel-out" style="display:none;">
     <div class="card">
+      <label style="margin-top:0;">Square 売上CSV</label>
+      <input type="file" id="stock-out-csv" accept=".csv" onchange="quickOutCsvSelected(this)">
+      <button class="btn-action" style="margin-top:8px; width:100%;" onclick="quickOutAnalyzeCsvExec()">CSV解析を実行</button>
+    </div>
+
+    <div class="card">
       <div style="font-size:12px; color:#666; font-weight:800;">よく使う商品</div>
       <div id="fav-out" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;"></div>
       <label>アイテム</label>
@@ -57,11 +63,6 @@
       <div id="stock-out-conv-hint" style="margin-top:6px; font-size:12px; color:#666;"></div>
       <button class="btn-main btn-danger" style="margin-top:10px;" onclick="quickWaste()">出庫/廃棄を登録</button>
     </div>
-
-    <div class="card">
-      <label style="margin-top:0;">Square 売上CSV</label>
-      <input type="file" id="stock-out-csv" accept=".csv" onchange="quickCsvOut(this)">
-    </div>
   </div>
 </div>
 
@@ -69,6 +70,8 @@
 let stockData = { materials: [], items: [], masterAll: [] };
 let stockInReceiptBase64 = '';
 let stockAiDraft = [];
+let stockOutBuffer = null;
+let stockOutCsvText = '';
 let stockTabMode = 'stock';
 
 function setStockTab(mode) {
@@ -286,21 +289,65 @@ function undoAdjust(name, oldVal, category, unit) {
   }).processInventoryAdjustment(name, oldVal, 'adj', category, unit, unit);
 }
 
-function quickCsvOut(input) {
-  const f = input.files && input.files[0];
+function quickOutCsvSelected(input) {
+  const f = input && input.files && input.files[0];
   if (!f) return;
-  load(true);
   const reader = new FileReader();
   reader.onload = e => {
-    google.script.run.withFailureHandler(handleGsError).withSuccessHandler(res => {
-      google.script.run.withFailureHandler(handleGsError).withSuccessHandler(msg => {
-        load(false);
-        toast(msg);
-        refreshStock();
-      }).registerOutflowFinal(res.reductions || {});
-    }).analyzeSalesCSV(e.target.result);
+    stockOutCsvText = String(e.target.result || '');
+    toast('CSVを選択しました。解析を実行してください');
   };
   reader.readAsText(f);
+}
+
+function quickOutAnalyzeCsvExec() {
+  if (!stockOutCsvText) {
+    toast('先にCSVファイルを選択してください');
+    return;
+  }
+  load(true);
+  google.script.run.withFailureHandler(handleGsError).withSuccessHandler(res => {
+    load(false);
+    stockOutBuffer = (res && res.reductions) ? res.reductions : {};
+    showStockOutPreview(stockOutBuffer);
+  }).analyzeSalesCSV(stockOutCsvText);
+}
+
+function showStockOutPreview(reductions) {
+  let itemsHtml = '';
+  for (let k in reductions) {
+    itemsHtml += `
+      <div style="background:#fff; border:1px solid #eee; padding:10px; border-radius:10px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+        <div style="font-weight:800; color:#444;">${k}</div>
+        <div style="color:var(--red-text); font-weight:800;">- ${reductions[k].qty} <span style="font-size:11px; color:#777;">${reductions[k].unit}</span></div>
+      </div>
+    `;
+  }
+
+  const html = `
+    <div style="font-weight:800; text-align:center; margin-bottom:12px; color:#333;">CSV出庫プレビュー</div>
+    <div style="font-size:12px;color:#666;margin-bottom:10px;">下記内容で出庫を登録します。</div>
+    <div style="max-height:250px; overflow:auto;">${itemsHtml || '<div style="font-size:12px;color:#888;">登録対象がありません</div>'}</div>
+    <div style="margin-top:12px;">
+      <button class="btn-main btn-danger" onclick="executeStockCsvOut()">出庫を登録</button>
+      <button class="btn-cancel" onclick="closeModal()">キャンセル</button>
+    </div>
+  `;
+  openModal(html);
+}
+
+function executeStockCsvOut() {
+  closeModal();
+  load(true);
+  google.script.run.withFailureHandler(handleGsError).withSuccessHandler(msg => {
+    load(false);
+    toast(msg);
+    stockOutBuffer = null;
+    stockOutCsvText = '';
+    const f = document.getElementById('stock-out-csv');
+    if (f) f.value = '';
+    refreshStock();
+  }).registerOutflowFinal(stockOutBuffer || {});
 }
 
 function quickInReceiptSelected(input) {

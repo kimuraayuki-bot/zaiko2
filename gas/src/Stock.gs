@@ -13,6 +13,9 @@ function updateStockDirectly(data) {
   const sheet = ss.getSheetByName(sheetName);
 
   if (!sheet) return 'エラー: シートが見つかりません';
+  if (!data || !data.name) return 'エラー: 入力が不正です';
+  const newQty = Number(data.newQty);
+  if (!isFinite(newQty) || newQty < 0) return 'エラー: 数量が不正です';
 
   const values = sheet.getDataRange().getValues();
   let targetRow = -1;
@@ -25,22 +28,22 @@ function updateStockDirectly(data) {
   }
 
   if (targetRow === -1) return 'エラー: アイテムが見つかりません';
-
-  sheet.getRange(targetRow, 12).setValue(data.newQty);
+  const currentQty = Number(values[targetRow - 1][11]) || 0;
+  const diff = newQty - currentQty;
+  if (diff === 0) return `${data.name} の在庫に変更はありません`;
 
   const historySheet = ss.getSheetByName(STOCK_SHEET_HISTORY);
-  if (historySheet) {
-    historySheet.appendRow([
-      new Date(),
-      data.category,
-      data.name,
-      '在庫調整',
-      data.newQty,
-      '',
-      '直接調整',
-      data.newQty
-    ]);
-  }
+  if (!historySheet) return 'エラー: 履歴シートが見つかりません';
+  historySheet.appendRow([
+    new Date(),
+    data.category,
+    data.name,
+    '在庫調整',
+    diff,
+    values[targetRow - 1][12] || '',
+    '直接調整',
+    ''
+  ]);
 
-  return `${data.name} の在庫を ${data.newQty} に更新しました`;
+  return `${data.name} の在庫を ${newQty} に更新しました`;
 }

@@ -1,9 +1,13 @@
 //==========================================
 // History.gs
-// 【機能】「📦｜履歴」への書き込み専用
+// 履歴シートへの書き込み
 //==========================================
 
 function appendToLog(data) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  ss.getSheetByName('📦｜履歴')?.appendRow(data);
+  const historySheet = ss.getSheetByName('📦｜履歴');
+  if (!historySheet) {
+    throw new Error('履歴シートが見つかりません');
+  }
+  historySheet.appendRow(data);
 }

@@ -27,3 +27,13 @@ This repository now includes a Vercel embed page at the project root (`index.htm
 - Set env var `GAS_API_URL` to your GAS Web App `/exec` URL.
 - Optional: set `GAS_API_TOKEN` if you configure `API_TOKEN` in GAS Script Properties.
 - Open your Vercel URL.
+
+## Auth properties (id_token + session)
+
+`src/WebApp.gs` now supports Google `id_token` verification on `doPost` and iframe session token on `doGet`.
+
+Set these Script Properties in Apps Script:
+
+- `GOOGLE_OAUTH_CLIENT_ID`: Web OAuth client ID (`xxxxx.apps.googleusercontent.com`)
+- `ALLOWED_EMAILS`: comma-separated allow list
+  - example: `ayukiofumiria@gmail.com,admin@example.com`
