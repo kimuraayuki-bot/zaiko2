@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Script from "next/script";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { GasApiError, callGasApi } from "@/lib/gasApi";
 
 type AuthState =
@@ -93,44 +93,8 @@ export default function Page() {
   const [sessionToken, setSessionToken] = useState("");
   const [idToken, setIdToken] = useState("");
   const buttonRef = useRef<HTMLDivElement | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const frameOriginRef = useRef("");
-  const sessionAckRef = useRef(false);
-  const sessionRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const iframeSrc = useMemo(() => {
-    if (!gasUrl) return "";
-    return gasUrl;
-  }, []);
-
-  const postSessionToFrame = useCallback(() => {
-    if (!sessionToken || !iframeRef.current?.contentWindow) return;
-    const targetOrigin = frameOriginRef.current || "*";
-    iframeRef.current.contentWindow.postMessage({ type: "gas-session", sessionToken }, targetOrigin);
-  }, [sessionToken]);
-
-  const stopSessionRetries = useCallback(() => {
-    if (sessionRetryTimerRef.current) {
-      clearTimeout(sessionRetryTimerRef.current);
-      sessionRetryTimerRef.current = null;
-    }
-  }, []);
-
-  const startSessionHandshake = useCallback(() => {
-    if (!sessionToken) return;
-    sessionAckRef.current = false;
-    stopSessionRetries();
-
-    let attempts = 0;
-    const send = () => {
-      if (sessionAckRef.current || attempts >= 10) return;
-      attempts += 1;
-      postSessionToFrame();
-      sessionRetryTimerRef.current = setTimeout(send, 500);
-    };
-
-    send();
-  }, [postSessionToFrame, sessionToken, stopSessionRetries]);
+  const bootstrapFormRef = useRef<HTMLFormElement | null>(null);
+  const submittedSessionRef = useRef("");
 
   const handleCredential = useCallback(async (response: GoogleCredentialResponse) => {
     if (!response.credential) {
@@ -171,45 +135,11 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      if (event.source !== iframeRef.current?.contentWindow) return;
-      if (event.data?.type === "gas-app-ready") {
-        frameOriginRef.current = event.origin;
-        startSessionHandshake();
-        return;
-      }
-      if (event.data?.type === "gas-session-received") {
-        frameOriginRef.current = event.origin;
-        sessionAckRef.current = true;
-        stopSessionRetries();
-        return;
-      }
-      if (event.data?.type === "gas-session-expired") {
-        stopSessionRetries();
-        setUser(null);
-        setIdToken("");
-        setSessionToken("");
-        setAuthState("signed_out");
-        setErrorMessage("セッションの有効期限が切れました。Googleで再ログインしてください。");
-      }
-    };
-
-    window.addEventListener("message", onMessage);
-    return () => {
-      stopSessionRetries();
-      window.removeEventListener("message", onMessage);
-    };
-  }, [startSessionHandshake, stopSessionRetries]);
-
-  useEffect(() => {
-    if (!sessionToken) {
-      sessionAckRef.current = false;
-      stopSessionRetries();
-      return;
-    }
-    startSessionHandshake();
-    return () => stopSessionRetries();
-  }, [sessionToken, startSessionHandshake, stopSessionRetries]);
+    if (authState !== "signed_in" || !sessionToken || !gasUrl || !bootstrapFormRef.current) return;
+    if (submittedSessionRef.current === sessionToken) return;
+    submittedSessionRef.current = sessionToken;
+    bootstrapFormRef.current.submit();
+  }, [authState, sessionToken]);
 
   useEffect(() => {
     if (!googleClientId) {
@@ -261,8 +191,7 @@ export default function Page() {
     setSessionToken("");
     setErrorMessage("");
     setAuthState("signed_out");
-    sessionAckRef.current = false;
-    stopSessionRetries();
+    submittedSessionRef.current = "";
   };
 
   return (
@@ -296,21 +225,23 @@ export default function Page() {
             <p className="noticeError">{errorMessage}</p>
           ) : null}
         </section>
-      ) : (
-        <section className="appShell">
-          <button type="button" onClick={handleSignOut} className="floatingSignOut">
-            Sign out
-          </button>
-          {iframeSrc ? (
+        ) : (
+          <section className="appShell">
+            <form ref={bootstrapFormRef} action={gasUrl} method="post" target="gas-app-frame" className="hidden">
+              <input type="hidden" name="bootstrapSessionToken" value={sessionToken} />
+            </form>
+            <button type="button" onClick={handleSignOut} className="floatingSignOut">
+              Sign out
+            </button>
+          {gasUrl ? (
             <iframe
-              ref={iframeRef}
-              src={iframeSrc}
+              name="gas-app-frame"
+              src="about:blank"
               title="GAS Web App"
               className="frame frameFullscreen"
               loading="lazy"
               allow="clipboard-read; clipboard-write"
               referrerPolicy="no-referrer"
-              onLoad={postSessionToFrame}
             />
           ) : (
             <p className="noticeError">iframe セッションが取得できませんでした。</p>
