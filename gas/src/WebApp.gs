@@ -15,12 +15,8 @@ const SESSION_TTL_SEC = 60 * 60;
 
 function doGet(e) {
   const sessionToken = e && e.parameter ? String(e.parameter.st || '') : '';
-  const session = getSessionFromToken_(sessionToken, true);
-  if (!session) {
-    return createUnauthorizedHtml_();
-  }
-
-  return buildAppHtml_(sessionToken);
+  const session = sessionToken ? getSessionFromToken_(sessionToken, true) : null;
+  return buildAppHtml_(session ? sessionToken : '');
 }
 
 function doPost(e) {
@@ -124,15 +120,6 @@ function buildAppHtml_(sessionToken) {
     .setTitle('Cafe Inventory Smart')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
-
-function createUnauthorizedHtml_() {
-  const deny = HtmlService.createHtmlOutput(
-    '<!doctype html><html><body><h3>401 Unauthorized</h3><p>Session is missing or expired.</p></body></html>'
-  );
-  deny.setTitle('Unauthorized');
-  deny.setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-  return deny;
 }
 
 function parseJsonRequest_(e) {

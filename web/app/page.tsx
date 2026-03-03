@@ -93,12 +93,22 @@ export default function Page() {
   const [sessionToken, setSessionToken] = useState("");
   const [idToken, setIdToken] = useState("");
   const buttonRef = useRef<HTMLDivElement | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   const iframeSrc = useMemo(() => {
-    if (!gasUrl || !sessionToken) return "";
-    const sep = gasUrl.includes("?") ? "&" : "?";
-    return `${gasUrl}${sep}st=${encodeURIComponent(sessionToken)}`;
-  }, [sessionToken]);
+    if (!gasUrl) return "";
+    return gasUrl;
+  }, []);
+
+  const gasOrigin = useMemo(() => {
+    if (!gasUrl) return "";
+    return new URL(gasUrl).origin;
+  }, []);
+
+  const postSessionToFrame = useCallback(() => {
+    if (!sessionToken || !iframeRef.current?.contentWindow || !gasOrigin) return;
+    iframeRef.current.contentWindow.postMessage({ type: "gas-session", sessionToken }, gasOrigin);
+  }, [gasOrigin, sessionToken]);
 
   const handleCredential = useCallback(async (response: GoogleCredentialResponse) => {
     if (!response.credential) {
@@ -140,17 +150,27 @@ export default function Page() {
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
-      if (event.data?.type !== "gas-session-expired") return;
-      setUser(null);
-      setIdToken("");
-      setSessionToken("");
-      setAuthState("signed_out");
-      setErrorMessage("セッションの有効期限が切れました。Googleで再ログインしてください。");
+      if (gasOrigin && event.origin !== gasOrigin) return;
+      if (event.data?.type === "gas-app-ready") {
+        postSessionToFrame();
+        return;
+      }
+      if (event.data?.type === "gas-session-expired") {
+        setUser(null);
+        setIdToken("");
+        setSessionToken("");
+        setAuthState("signed_out");
+        setErrorMessage("セッションの有効期限が切れました。Googleで再ログインしてください。");
+      }
     };
 
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, []);
+  }, [gasOrigin, postSessionToFrame]);
+
+  useEffect(() => {
+    postSessionToFrame();
+  }, [postSessionToFrame]);
 
   useEffect(() => {
     if (!googleClientId) {
@@ -242,12 +262,14 @@ export default function Page() {
           </button>
           {iframeSrc ? (
             <iframe
+              ref={iframeRef}
               src={iframeSrc}
               title="GAS Web App"
               className="frame frameFullscreen"
               loading="lazy"
               allow="clipboard-read; clipboard-write"
               referrerPolicy="no-referrer"
+              onLoad={postSessionToFrame}
             />
           ) : (
             <p className="noticeError">iframe セッションが取得できませんでした。</p>

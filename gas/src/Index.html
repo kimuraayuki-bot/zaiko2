@@ -79,10 +79,13 @@
 
   <script>
     window.__sessionToken = <?!= JSON.stringify(sessionToken || '') ?>;
+    window.__appInitialized = false;
+    window.__currentPageId = "pg-home";
     let __undoTimer = null;
     let __undoFn = null;
 
     function showPage(id, subMode = "") {
+      window.__currentPageId = id;
       if(id === 'pg-in' || id === 'pg-out') id = 'pg-stock';
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -92,13 +95,8 @@
       if(navId === 'in' || navId === 'out') navId = 'stock';
       const nav = document.getElementById('btn-' + navId);
       if (nav) nav.classList.add('active');
-      if(id === 'pg-home') refreshHome();
-      if(id === 'pg-stock') {
-        refreshStock();
-        if (typeof setStockTab === "function") setStockTab(subMode || "stock");
-      }
-      if(id === 'pg-recipe') refreshRecipe();
-      if(id === 'pg-act') refreshCalendar();
+      if (!window.__appInitialized) return;
+      refreshCurrentPage(id, subMode);
     }
     function toast(msg, undoFn = null) {
       const t = document.getElementById("toast");
@@ -134,6 +132,8 @@
       load(false);
       const msg = (err && err.message) ? err.message : "処理に失敗しました";
       if (msg.includes("セッションが切れました")) {
+        window.__appInitialized = false;
+        window.__sessionToken = "";
         try {
           if (window.parent && window.parent !== window) {
             window.parent.postMessage({ type: "gas-session-expired" }, "*");
@@ -155,6 +155,34 @@
       runner[methodName](...args, window.__sessionToken);
     }
 
+    function refreshCurrentPage(id = window.__currentPageId, subMode = "") {
+      if(id === 'pg-home') refreshHome();
+      if(id === 'pg-stock') {
+        refreshStock();
+        if (typeof setStockTab === "function") setStockTab(subMode || "stock");
+      }
+      if(id === 'pg-recipe') refreshRecipe();
+      if(id === 'pg-act') refreshCalendar();
+    }
+
+    function initializeApp() {
+      if (!window.__sessionToken) return;
+      window.__appInitialized = true;
+      closeModal();
+      refreshCurrentPage();
+    }
+
+    function renderBootState(message) {
+      openModal(`<div style="text-align:center; color:#666; font-weight:700;">${message}</div>`);
+    }
+
+    function handleSessionMessage(event) {
+      const data = event && event.data ? event.data : null;
+      if (!data || data.type !== "gas-session" || typeof data.sessionToken !== "string") return;
+      window.__sessionToken = data.sessionToken;
+      initializeApp();
+    }
+
     function notifyEmbedReady() {
       try {
         if (window.parent && window.parent !== window) {
@@ -163,8 +191,14 @@
       } catch (e) {}
     }
 
+    window.addEventListener("message", handleSessionMessage);
     window.addEventListener("load", notifyEmbedReady);
     setTimeout(notifyEmbedReady, 1200);
+    if (window.__sessionToken) {
+      initializeApp();
+    } else {
+      renderBootState("親画面からの認証待ちです...");
+    }
   </script>
 </body>
 </html>
