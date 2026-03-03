@@ -94,21 +94,18 @@ export default function Page() {
   const [idToken, setIdToken] = useState("");
   const buttonRef = useRef<HTMLDivElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const frameOriginRef = useRef("");
 
   const iframeSrc = useMemo(() => {
     if (!gasUrl) return "";
     return gasUrl;
   }, []);
 
-  const gasOrigin = useMemo(() => {
-    if (!gasUrl) return "";
-    return new URL(gasUrl).origin;
-  }, []);
-
   const postSessionToFrame = useCallback(() => {
-    if (!sessionToken || !iframeRef.current?.contentWindow || !gasOrigin) return;
-    iframeRef.current.contentWindow.postMessage({ type: "gas-session", sessionToken }, gasOrigin);
-  }, [gasOrigin, sessionToken]);
+    if (!sessionToken || !iframeRef.current?.contentWindow) return;
+    const targetOrigin = frameOriginRef.current || "*";
+    iframeRef.current.contentWindow.postMessage({ type: "gas-session", sessionToken }, targetOrigin);
+  }, [sessionToken]);
 
   const handleCredential = useCallback(async (response: GoogleCredentialResponse) => {
     if (!response.credential) {
@@ -150,8 +147,9 @@ export default function Page() {
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
-      if (gasOrigin && event.origin !== gasOrigin) return;
+      if (event.source !== iframeRef.current?.contentWindow) return;
       if (event.data?.type === "gas-app-ready") {
+        frameOriginRef.current = event.origin;
         postSessionToFrame();
         return;
       }
@@ -166,7 +164,7 @@ export default function Page() {
 
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [gasOrigin, postSessionToFrame]);
+  }, [postSessionToFrame]);
 
   useEffect(() => {
     postSessionToFrame();
