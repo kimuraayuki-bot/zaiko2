@@ -180,6 +180,11 @@
       const data = event && event.data ? event.data : null;
       if (!data || data.type !== "gas-session" || typeof data.sessionToken !== "string") return;
       window.__sessionToken = data.sessionToken;
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: "gas-session-received" }, "*");
+        }
+      } catch (e) {}
       initializeApp();
     }
 

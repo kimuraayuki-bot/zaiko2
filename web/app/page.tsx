@@ -95,6 +95,8 @@ export default function Page() {
   const buttonRef = useRef<HTMLDivElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const frameOriginRef = useRef("");
+  const sessionAckRef = useRef(false);
+  const sessionRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const iframeSrc = useMemo(() => {
     if (!gasUrl) return "";
@@ -106,6 +108,29 @@ export default function Page() {
     const targetOrigin = frameOriginRef.current || "*";
     iframeRef.current.contentWindow.postMessage({ type: "gas-session", sessionToken }, targetOrigin);
   }, [sessionToken]);
+
+  const stopSessionRetries = useCallback(() => {
+    if (sessionRetryTimerRef.current) {
+      clearTimeout(sessionRetryTimerRef.current);
+      sessionRetryTimerRef.current = null;
+    }
+  }, []);
+
+  const startSessionHandshake = useCallback(() => {
+    if (!sessionToken) return;
+    sessionAckRef.current = false;
+    stopSessionRetries();
+
+    let attempts = 0;
+    const send = () => {
+      if (sessionAckRef.current || attempts >= 10) return;
+      attempts += 1;
+      postSessionToFrame();
+      sessionRetryTimerRef.current = setTimeout(send, 500);
+    };
+
+    send();
+  }, [postSessionToFrame, sessionToken, stopSessionRetries]);
 
   const handleCredential = useCallback(async (response: GoogleCredentialResponse) => {
     if (!response.credential) {
@@ -150,10 +175,17 @@ export default function Page() {
       if (event.source !== iframeRef.current?.contentWindow) return;
       if (event.data?.type === "gas-app-ready") {
         frameOriginRef.current = event.origin;
-        postSessionToFrame();
+        startSessionHandshake();
+        return;
+      }
+      if (event.data?.type === "gas-session-received") {
+        frameOriginRef.current = event.origin;
+        sessionAckRef.current = true;
+        stopSessionRetries();
         return;
       }
       if (event.data?.type === "gas-session-expired") {
+        stopSessionRetries();
         setUser(null);
         setIdToken("");
         setSessionToken("");
@@ -163,12 +195,21 @@ export default function Page() {
     };
 
     window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [postSessionToFrame]);
+    return () => {
+      stopSessionRetries();
+      window.removeEventListener("message", onMessage);
+    };
+  }, [startSessionHandshake, stopSessionRetries]);
 
   useEffect(() => {
-    postSessionToFrame();
-  }, [postSessionToFrame]);
+    if (!sessionToken) {
+      sessionAckRef.current = false;
+      stopSessionRetries();
+      return;
+    }
+    startSessionHandshake();
+    return () => stopSessionRetries();
+  }, [sessionToken, startSessionHandshake, stopSessionRetries]);
 
   useEffect(() => {
     if (!googleClientId) {
@@ -220,6 +261,8 @@ export default function Page() {
     setSessionToken("");
     setErrorMessage("");
     setAuthState("signed_out");
+    sessionAckRef.current = false;
+    stopSessionRetries();
   };
 
   return (
